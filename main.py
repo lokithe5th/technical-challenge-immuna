@@ -112,7 +112,7 @@ def checkL1toL2(l1Bridge, l2Bridge):
         'module': 'logs',
         'action': 'getLogs',
         'address': l2Bridge,
-        'startblock': str(int(blockHeightL2) - 100),
+        'startblock': str(int(blockHeightL2) - 50),
         'endblock': 99999999,
         'apikey': constants.ETHERSCAN_L2_KEY
     }
