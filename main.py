@@ -3,30 +3,45 @@ import json
 import datetime
 import time
 import calendar
+import constants
 
-ETHERSCAN_KEY = "A93198DXZCATMIY5D79ECVWIVTTNPPUR9G"
-OPTIMISTIC_ETHERSCAN_KEY = "1S8RNDEVJXIT1MP36XSR699BWUXIU6JP64"
-wallet = "0x809f55d088872ffb148f86b5c21722caa609ac72"
-OPTIMISM_BRIDGE = "0x99c9fc46f92e8a1c0dec1b1747d010903e884be1"
-BRIDGE_OWNER = "0x9996571372066A1545D3435C6935e3F9593A7eF5"
-# Very few transactions occur from this address
-OWNER_START_BLOCK = 12686795
-# The Bridge has many transactions, no need to go back so far
-BRIDGE_START_BLOCK = 16496975
+blockHeightL1: str
+blockHeightL2: str
+
+# Let's get the latest blocks for L1 and L2
+def getBlocks(api: str, key: str):
+    date = datetime.datetime.utcnow()
+    utc_time = calendar.timegm(date.utctimetuple())
+    assert(constants.L1_OPTIMISM_BRIDGE is not None)
+    url_params = {
+        'module': 'block',
+        'action': 'getblocknobytime',
+        'timestamp': utc_time,
+        'closest': 'before',
+        'apikey': key
+    }
+
+    response = requests.get(api, params=url_params)
+    responseParsed = json.loads(response.content)
+
+    assert(responseParsed['message'] == 'OK')
+
+    return responseParsed['result']
 
 # Checks the owner of the Bridge Contracts for transactions
+# As a primary point of failure it can be an indicator of suspicious activity
 def checkBridgeOwnerTransactions(bridgeOwner: str = None):
     date = datetime.datetime.utcnow()
     utc_time = calendar.timegm(date.utctimetuple())
-    assert(wallet is not None)
+    assert(constants.L1_OPTIMISM_BRIDGE is not None)
     url_params = {
         'module': 'account',
         'action': 'txlist',
         'address': bridgeOwner,
-        'startblock': OWNER_START_BLOCK,
+        'startblock': constants.OWNER_START_BLOCK,
         'endblock': 99999999,
         'soft': 'asc',
-        'apikey': ETHERSCAN_KEY
+        'apikey': constants.ETHERSCAN_L1_KEY
     }
 
     response = requests.get('https://api.etherscan.io/api', params=url_params)
@@ -36,7 +51,7 @@ def checkBridgeOwnerTransactions(bridgeOwner: str = None):
     txs = responseParsed['result']
     # Craft the `logs`, including only the txs that were made by the `Bridge Owner Account` to the bridge
     logs = [ {'from': tx['from'], 'to': tx['to'], 'value': tx['value'], 'timestamp': tx['timeStamp']} 
-         for tx in txs if (tx['to'] == OPTIMISM_BRIDGE and int(tx['timeStamp']) > (utc_time - 60)) ]
+         for tx in txs if (tx['to'] == constants.L1_OPTIMISM_BRIDGE and int(tx['timeStamp']) > (utc_time - 60)) ]
     if (logs == []):
         print(f'Bridge Owner Txs: OK')
     else:
@@ -44,15 +59,17 @@ def checkBridgeOwnerTransactions(bridgeOwner: str = None):
         for log in logs:
             print(log)
 
+# Check that there hasn't been any ETH transferred out of the bridge directly
+# Direct ETH transfers are unlikely and should be flagged as suspicious
 def checkBridgeEtherOut(bridge: str = None):
     url_params = {
         'module': 'account',
         'action': 'txlist',
         'address': bridge,
-        'startblock': BRIDGE_START_BLOCK,
+        'startblock': constants.BRIDGE_START_BLOCK,
         'endblock': 99999999,
         'soft': 'asc',
-        'apikey': ETHERSCAN_KEY
+        'apikey': constants.ETHERSCAN_L1_KEY
     }
 
     response = requests.get('https://api.etherscan.io/api', params=url_params)
@@ -69,8 +86,67 @@ def checkBridgeEtherOut(bridge: str = None):
         for log in logs:
             print(log)
 
-while True:
-    checkBridgeOwnerTransactions(BRIDGE_OWNER)
-    checkBridgeEtherOut(OPTIMISM_BRIDGE)
-    print('Repolling in 12s')
-    time.sleep(12)
+# Check L1 deposits against L2 withdrawals
+def checkL1toL2(l1Bridge, l2Bridge):
+    # Find the L1 deposit events
+    url_params = {
+        'module': 'logs',
+        'action': 'getLogs',
+        'address': l1Bridge,
+        'startblock': str(int(blockHeightL1) - 100),
+        'endblock': 99999999,
+        'apikey': constants.ETHERSCAN_L1_KEY
+    }
+
+    response = requests.get(constants.ETHERSCAN_L1, params=url_params)
+    responseParsed = json.loads(response.content)
+    assert(responseParsed['message'] == 'OK')
+
+    txs = responseParsed['result']
+    #print(txs)
+    l1Logs = [ {'topics': tx['topics'], 'data': tx['data'], 'timestamp': tx['timeStamp']} 
+         for tx in txs if (tx['topics'][0] == constants.EVENT_INITIATE_DEPOSIT)]
+
+    # Find the L2 withdraw events
+    url_params = {
+        'module': 'logs',
+        'action': 'getLogs',
+        'address': l2Bridge,
+        'startblock': str(int(blockHeightL2) - 100),
+        'endblock': 99999999,
+        'apikey': constants.ETHERSCAN_L2_KEY
+    }
+
+    response = requests.get(constants.ETHERSCAN_L2, params=url_params)
+    responseParsed = json.loads(response.content)
+    assert(responseParsed['message'] == 'OK')
+
+    txs = responseParsed['result']
+    #print(txs)
+    l2Logs = [ {'topics': tx['topics'], 'data': tx['data'], 'timestamp': tx['timeStamp']} 
+         for tx in txs if (tx['topics'][0] == constants.EVENT_DEPOSIT_FINALIZED)]
+
+    if (l1Logs == []):
+        print('Bridge Ether Out Cehck OK: TRUE')
+    else:
+        print('New Events by the Bridge!')
+        for log in l1Logs:
+            depositorAddress = '0x' + log['data'][27:66]
+            print(depositorAddress)
+        print('L2 logs')
+        for log in l2Logs:
+            withdrawAddress = '0x' + log['data'][27:66]
+            print(withdrawAddress)
+
+blockHeightL1 = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
+blockHeightL2 = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
+print('L1: ', blockHeightL1, ' L2: ', blockHeightL2)
+
+checkL1toL2(constants.L1_OPTIMISM_BRIDGE, constants.L2_OPTIMISM_BRIDGE)
+
+# Run the script
+#while True:
+    #checkBridgeOwnerTransactions(constants.BRIDGE_OWNER)
+    #checkBridgeEtherOut(constants.OPTIMISM_BRIDGE)
+    #print('Repolling in 12s')
+    #time.sleep(12)
