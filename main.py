@@ -159,14 +159,16 @@ def checkL1toL2(l1Bridge, l2Bridge):
 blockHeightL1 = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
 blockHeightL2 = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
 
-# Check and report each component
-bridgeOwnerCheck = checkBridgeOwnerTransactions(constants.BRIDGE_OWNER)
-bridgeEtherCheck = checkBridgeEtherOut(constants.L1_OPTIMISM_BRIDGE)
-bridgeL1Reserves = checkL1Reserves(constants.L1_OPTIMISM_BRIDGE)
-# Fix for etherscan API rate limit bug
-time.sleep(2)
-bridgeDepositHealth = checkL1toL2(constants.L1_OPTIMISM_BRIDGE, constants.L2_OPTIMISM_BRIDGE)
+while True:
+    # Check and report each component
+    bridgeOwnerCheck = checkBridgeOwnerTransactions(constants.BRIDGE_OWNER)
+    bridgeEtherCheck = checkBridgeEtherOut(constants.L1_OPTIMISM_BRIDGE)
+    bridgeL1Reserves = checkL1Reserves(constants.L1_OPTIMISM_BRIDGE)
+    # Fix for etherscan API rate limit bug
+    time.sleep(2)
+    bridgeDepositHealth = checkL1toL2(constants.L1_OPTIMISM_BRIDGE, constants.L2_OPTIMISM_BRIDGE)
 
-# Return the status of the bridge
-bridgeHealth = bridgeOwnerCheck or bridgeEtherCheck or bridgeL1Reserves or bridgeDepositHealth
-print(bridgeHealth)
+    # Return the status of the bridge
+    bridgeHealth = bridgeOwnerCheck or bridgeEtherCheck or bridgeL1Reserves or bridgeDepositHealth
+    print(bridgeHealth)
+    time.sleep(constants.POLLING_TIME)
