@@ -1,30 +1,29 @@
-import requests
-import json
+# Optimism Bridge Monitoring Script
+# @author lourens linde
+# For Immuna Technical Challenge
 import time
 import constants
-from helpers import getBlocks
+from helpers import getBlocks, getTransactions
 
 blockHeightL1: str
 blockHeightL2: str
 
 # Checks the owner of the Bridge Contracts for transactions
 # As a primary point of failure it can be an indicator of suspicious activity
+# @dev Tweak the `startBlock` offset to smallest acceptable value if polling continuously
 def checkBridgeOwnerTransactions(bridgeOwner: str = None):
     assert(constants.L1_OPTIMISM_BRIDGE is not None)
-    url_params = {
+    urlParams = {
         'module': 'account',
         'action': 'txlist',
         'address': bridgeOwner,
-        'startblock': int(blockHeightL1) - 100,
+        'startblock': blockHeightL1 - constants.STARTBLOCK_OFFSET,
         'endblock': 99999999,
         'soft': 'asc',
         'apikey': constants.ETHERSCAN_L1_KEY
     }
 
-    response = requests.get('https://api.etherscan.io/api', params=url_params)
-    responseParsed = json.loads(response.content)
-
-    txs = responseParsed['result']
+    txs = getTransactions(constants.ETHERSCAN_L1, urlParams)
     # Craft the `logs`, filtering for txs that were made by the `Bridge Owner Account` to the bridge
     # in the last 60 seconds
     logs = [ {'from': tx['from'], 'to': tx['to'], 'value': tx['value'], 'timestamp': tx['timeStamp']} 
@@ -42,22 +41,19 @@ def checkBridgeOwnerTransactions(bridgeOwner: str = None):
 # Check that there hasn't been any ETH transferred out of the bridge directly
 # Direct ETH transfers are unlikely and should be flagged as highly suspicious
 # This function searches for ETHER out transactions in the last 100 blocks
+# @dev Tweak the `startBlock` offset to smallest acceptable value if polling continuously
 def checkBridgeEtherOut(bridge: str = None):
-    url_params = {
+    urlParams = {
         'module': 'account',
         'action': 'txlist',
         'address': bridge,
-        'startblock': int(blockHeightL1) - 100,
+        'startblock': blockHeightL1 - constants.STARTBLOCK_OFFSET,
         'endblock': 99999999,
         'soft': 'asc',
         'apikey': constants.ETHERSCAN_L1_KEY
     }
 
-    response = requests.get('https://api.etherscan.io/api', params=url_params)
-    responseParsed = json.loads(response.content)
-    assert(responseParsed['message'] == 'OK')
-
-    txs = responseParsed['result']
+    txs = getTransactions(constants.ETHERSCAN_L1, urlParams)
     logs = [ {'from': tx['from'], 'to': tx['to'], 'value': tx['value'], 'timestamp': tx['timeStamp']} 
          for tx in txs if int(tx['value']) > 0 and tx['from'] == bridge ]
     if (logs == []):
@@ -76,7 +72,7 @@ def checkBridgeEtherOut(bridge: str = None):
 # That functionality is not available with the free etherscan API calls, but can be done on `pro` plans
 # For now, the expected bridge reserve is given by `BRIDGE_RESERVE`, not ideal, but demonstrates the functionality
 def checkL1Reserves(bridge: str = None):
-    url_params = {
+    urlParams = {
         'module': 'account',
         'action': 'balance',
         'address': bridge,
@@ -84,11 +80,7 @@ def checkL1Reserves(bridge: str = None):
         'apikey': constants.ETHERSCAN_L1_KEY
     }
 
-    response = requests.get('https://api.etherscan.io/api', params=url_params)
-    responseParsed = json.loads(response.content)
-    assert(responseParsed['message'] == 'OK')
-
-    l1Reserves = responseParsed['result']
+    l1Reserves = getTransactions(constants.ETHERSCAN_L1, urlParams)
     if (int(l1Reserves) < (constants.BRIDGE_RESERVE - constants.BRIDGE_RESERVE/constants.RESERVE_DIFFERENCE)):
         print('Reserves: Not OK')
         return False
@@ -102,21 +94,17 @@ def checkL1Reserves(bridge: str = None):
 # This is taken as a sample of bridge health
 def checkL1toL2(l1Bridge, l2Bridge):
     # Find the L1 deposit events
-    url_params = {
+    urlParams = {
         'module': 'logs',
         'action': 'getLogs',
         'address': l1Bridge,
-        'fromBlock': str(int(blockHeightL1) - 100),
+        'fromBlock': str(blockHeightL1 - constants.STARTBLOCK_OFFSET),
         'toBlock': str(int(blockHeightL1) - 50),
         'topic0' : constants.EVENT_INITIATE_DEPOSIT,
         'apikey': constants.ETHERSCAN_L1_KEY
     }
 
-    response = requests.get(constants.ETHERSCAN_L1, params=url_params)
-    responseParsed = json.loads(response.content)
-    assert(responseParsed['message'] == 'OK')
-
-    txs = responseParsed['result']
+    txs = getTransactions(constants.ETHERSCAN_L1, urlParams)
     l1Logs = [ {'fromAddress': tx['topics'][1], 'toAddress': tx['topics'][2], 'value': tx['data'][2:65]} 
          for tx in txs if (tx['topics'][0] == constants.EVENT_INITIATE_DEPOSIT)]
 
@@ -124,11 +112,11 @@ def checkL1toL2(l1Bridge, l2Bridge):
     healthCheck : bool = True
     for log in l1Logs:
 
-        url_params = {
+        urlParams = {
             'module': 'logs',
             'action': 'getLogs',
             'address': l2Bridge,
-            'fromBlock': str(int(blockHeightL2) - 1500),
+            'fromBlock': str(blockHeightL2 - 1500),
             'toBlock': 99999999,
             'topic0': constants.EVENT_DEPOSIT_FINALIZED,
             'topic0_3_opr' : 'and',
@@ -136,16 +124,13 @@ def checkL1toL2(l1Bridge, l2Bridge):
             'apikey': constants.ETHERSCAN_L2_KEY
         }
 
-        response = requests.get(constants.ETHERSCAN_L2, params=url_params)
-        responseParsed = json.loads(response.content)
-
-        txs = responseParsed['result']
+        txs = getTransactions(constants.ETHERSCAN_L2, urlParams)
         l2Logs = [ {'fromAddress': tx['topics'][1], 'toAddress': tx['topics'][2], 'value': tx['data'][66:129]} 
             for tx in txs]
 
         # If the response is NOTOK the check fails
         # If the value of the L2 tx is not the same as the value of the L1, the check fails
-        if (responseParsed['message'] != 'OK' or (l2Logs[0]['value'] != log['value'])):
+        if (l2Logs[0]['value'] != log['value']):
             healthCheck = False
 
     if (healthCheck):
@@ -156,19 +141,19 @@ def checkL1toL2(l1Bridge, l2Bridge):
         return healthCheck
 
 # Block heights are needed as starting points for the script
-blockHeightL1 = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
-blockHeightL2 = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
+blockHeightL1: int = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
+blockHeightL2: int = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
 
 while True:
     # Check and report each component
     bridgeOwnerCheck = checkBridgeOwnerTransactions(constants.BRIDGE_OWNER)
     bridgeEtherCheck = checkBridgeEtherOut(constants.L1_OPTIMISM_BRIDGE)
     bridgeL1Reserves = checkL1Reserves(constants.L1_OPTIMISM_BRIDGE)
-    # Fix for etherscan API rate limit bug
-    time.sleep(2)
+    # Fix for etherscan API rate limit bug (1 second delay bypasses the rate limit)
+    time.sleep(1)
     bridgeDepositHealth = checkL1toL2(constants.L1_OPTIMISM_BRIDGE, constants.L2_OPTIMISM_BRIDGE)
 
     # Return the status of the bridge
     bridgeHealth = bridgeOwnerCheck or bridgeEtherCheck or bridgeL1Reserves or bridgeDepositHealth
-    print(bridgeHealth)
+    print('Bridge OK: ', bridgeHealth)
     time.sleep(constants.POLLING_TIME)

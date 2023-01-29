@@ -5,21 +5,29 @@ import calendar
 import constants
 
 # Teches the latest blocks target chain for L1 and L2
-def getBlocks(api: str, key: str):
+def getBlocks(api: str, key: str) -> int:
     date = datetime.datetime.utcnow()
-    utc_time = calendar.timegm(date.utctimetuple())
+    utcTime = calendar.timegm(date.utctimetuple())
     assert(constants.L1_OPTIMISM_BRIDGE is not None)
-    url_params = {
+    urlParams = {
         'module': 'block',
         'action': 'getblocknobytime',
-        'timestamp': utc_time,
+        'timestamp': utcTime,
         'closest': 'before',
         'apikey': key
     }
 
-    response = requests.get(api, params=url_params)
+    response = requests.get(api, params=urlParams)
     responseParsed = json.loads(response.content)
 
     assert(responseParsed['message'] == 'OK')
 
+    return int(responseParsed['result'])
+
+# Simple helper function to take care of the API calls to Etherscan
+def getTransactions(api: str, params: object) -> list:
+    response = requests.get(api, params=params)
+    responseParsed = json.loads(response.content)
     return responseParsed['result']
+
+
