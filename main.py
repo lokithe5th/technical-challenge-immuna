@@ -121,7 +121,7 @@ def checkL1toL2(l1Bridge, l2Bridge):
             'module': 'logs',
             'action': 'getLogs',
             'address': l2Bridge,
-            'fromBlock': str(blockHeightL2 - 1500),
+            'fromBlock': str(blockHeightL2 - 2000),
             'toBlock': 99999999,
             'topic0': constants.EVENT_DEPOSIT_FINALIZED,
             'topic0_3_opr' : 'and',
@@ -133,22 +133,27 @@ def checkL1toL2(l1Bridge, l2Bridge):
         l2Logs = [ {'fromAddress': tx['topics'][1], 'toAddress': tx['topics'][2], 'value': tx['data'][66:129]} 
             for tx in txs]
 
+        # Depending on tx frequency there may be issues with the `l2Logs` index
+        try:
+            if (l2Logs[0]['value'] != log['value']):
+                healthCheck = False
+        
+        except:
+            print('Error: no corresponding transactions returned. Check API status')
+            return False
+        else:
         # If the response is NOTOK the check fails
         # If the value of the L2 tx is not the same as the value of the L1, the check fails
-        if (l2Logs[0]['value'] != log['value']):
-            healthCheck = False
-
-    if (healthCheck):
-        print('L1 -> L2 Deposits: OK')
-        return healthCheck
-    else:
-        print('l1 -> L2 Deposits: NOT OK')
-        return healthCheck
+            if (healthCheck):
+                print('L1 -> L2 Deposits: OK')
+                return healthCheck
+            else:
+                print('l1 -> L2 Deposits: NOT OK')
+                return healthCheck
 
 # Block heights are needed as starting points for the script
 blockHeightL1: int = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
 blockHeightL2: int = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
-global lastEthReserve
 lastEthReserve = constants.BRIDGE_RESERVE
 
 while True:

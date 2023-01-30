@@ -17,12 +17,17 @@ def getBlocks(api: str, key: str) -> int:
         'apikey': key
     }
 
-    response = requests.get(api, params=urlParams)
-    responseParsed = json.loads(response.content)
+    # From time to time there are bad responses from the Etherscan API
+    try:
+        response = requests.get(api, params=urlParams)
+        responseParsed = json.loads(response.content)
+        assert(responseParsed['message'] == 'OK')
 
-    assert(responseParsed['message'] == 'OK')
+    except:
+        print('Error in request or response from Etherscan API. Please check URL params or API service status.')
 
-    return int(responseParsed['result'])
+    else:
+        return int(responseParsed['result'])
 
 # Simple helper function to take care of the API calls to Etherscan
 def getTransactions(api: str, params: object) -> list:
