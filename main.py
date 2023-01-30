@@ -5,8 +5,7 @@ import time
 import constants
 from helpers import getBlocks, getTransactions
 
-blockHeightL1: str
-blockHeightL2: str
+global lastEthReserve
 
 # Checks the owner of the Bridge Contracts for transactions
 # As a primary point of failure it can be an indicator of suspicious activity
@@ -18,7 +17,7 @@ def checkBridgeOwnerTransactions(bridgeOwner: str = None):
         'action': 'txlist',
         'address': bridgeOwner,
         'startblock': blockHeightL1 - constants.STARTBLOCK_OFFSET,
-        'endblock': 99999999,
+        'endblock': blockHeightL1,
         'soft': 'asc',
         'apikey': constants.ETHERSCAN_L1_KEY
     }
@@ -80,11 +79,17 @@ def checkL1Reserves(bridge: str = None):
         'apikey': constants.ETHERSCAN_L1_KEY
     }
 
-    l1Reserves = getTransactions(constants.ETHERSCAN_L1, urlParams)
-    if (int(l1Reserves) < (constants.BRIDGE_RESERVE - constants.BRIDGE_RESERVE/constants.RESERVE_DIFFERENCE)):
+    # First we use a constant ETH reserve as a starting point
+    # After which the latest E
+    global lastEthReserve
+
+    l1Reserves = int(getTransactions(constants.ETHERSCAN_L1, urlParams))
+    if (l1Reserves < (lastEthReserve - lastEthReserve/constants.RESERVE_DIFFERENCE)):
         print('Reserves: Not OK')
         return False
 
+    # Update the ETH reserve for more accurate future polling
+    lastEthReserve = l1Reserves
     print('Reserves: OK')
     return True
 
@@ -99,7 +104,7 @@ def checkL1toL2(l1Bridge, l2Bridge):
         'action': 'getLogs',
         'address': l1Bridge,
         'fromBlock': str(blockHeightL1 - constants.STARTBLOCK_OFFSET),
-        'toBlock': str(int(blockHeightL1) - 50),
+        'toBlock': str(blockHeightL1 - 50),
         'topic0' : constants.EVENT_INITIATE_DEPOSIT,
         'apikey': constants.ETHERSCAN_L1_KEY
     }
@@ -143,6 +148,8 @@ def checkL1toL2(l1Bridge, l2Bridge):
 # Block heights are needed as starting points for the script
 blockHeightL1: int = getBlocks(constants.ETHERSCAN_L1, constants.ETHERSCAN_L1_KEY)
 blockHeightL2: int = getBlocks(constants.ETHERSCAN_L2, constants.ETHERSCAN_L2_KEY)
+global lastEthReserve
+lastEthReserve = constants.BRIDGE_RESERVE
 
 while True:
     # Check and report each component
