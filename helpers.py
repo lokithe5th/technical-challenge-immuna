@@ -8,7 +8,6 @@ import constants
 def getBlocks(api: str, key: str) -> int:
     date = datetime.datetime.utcnow()
     utcTime = calendar.timegm(date.utctimetuple())
-    assert(constants.L1_OPTIMISM_BRIDGE is not None)
     urlParams = {
         'module': 'block',
         'action': 'getblocknobytime',
@@ -24,7 +23,11 @@ def getBlocks(api: str, key: str) -> int:
         assert(responseParsed['message'] == 'OK')
 
     except:
-        print('Error in request or response from Etherscan API. Please check URL params or API service status.')
+        print('Error in request or response from Etherscan API. Please check URL params or API service status. Fallback block height used!')
+        if (api == constants.ETHERSCAN_L1):
+            return constants.L1_FALLBACK_START_BLOCK
+        else:
+            return constants.L2_FALLBACK_START_BLOCK
 
     else:
         return int(responseParsed['result'])
